@@ -12,7 +12,7 @@ run:
 	./$(EXECUTAVEL)
 
 clean:
-	rm -rf STOCKS VENDAS $(EXECUTAVEL) *.o
+	rm -rf stocks vendas $(EXECUTAVEL) *.o
 
 grind:
 	valgrind --leak-check=full --show-reachable=no --show-leak-kinds=all ./$(EXECUTAVEL)

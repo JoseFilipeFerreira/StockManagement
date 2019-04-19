@@ -12,11 +12,10 @@ run:
 	./$(EXECUTAVEL)
 
 clean:
-	rm -rf ARTIGOS STRINGS $(EXECUTAVEL) *.o
+	rm -rf artigos strings $(EXECUTAVEL) *.o
 
 grind:
 	valgrind --leak-check=full --show-reachable=no --show-leak-kinds=all ./$(EXECUTAVEL)
   
 article.o: article.c article.h
 manager.o: manager.c article.o $(UTILS)/utils.o
-
