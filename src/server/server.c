@@ -72,14 +72,16 @@ int main() {
     if(!fork()) {
         initF();
         char buff[100];
-        int id, size = 0;
+        int id, size;
+        size = sprintf(buff, "%d\n", getpid());
+        write(1, buff, size);
         mkfifo("../pipes/rd", 0700);
         mkfifo("../pipes/wr", 0700);
         int rd = open("../pipes/rd", O_RDONLY);
         int wr = open("../pipes/wr", O_WRONLY);
         while(readln(rd, buff, 100)) {
             if(buff[0] < '0' || buff[0] > '9') {
-                write(wr, "\n", 1);
+                write(wr, "\b\n", 2);
                 continue;
             }
             id = atoi(strtok(buff, " "));
@@ -87,14 +89,14 @@ int main() {
             if(!abc) {
                 char* info = articleInfo(id, &size);
                 if(!info)
-                    write(wr, "\n", 1); 
+                    write(wr, "\b\n", 2); 
                 else 
                     write(wr, info, size + 1);
             }
             else {
                 ssize_t quant = atoi(abc);
                 updateStock(id, quant);
-                write(wr, "\n", 1); 
+                write(wr, "\b\n", 2); 
             }
         }
         close(rd);
