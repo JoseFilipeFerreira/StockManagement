@@ -7,6 +7,7 @@
 #include "../utils/utils.h"
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define CACHESIZE 50
 #define BUFFSIZE 4096
@@ -32,7 +33,7 @@ void initF() {
     time_t articleCreate;
     read(artigos, &articleCreate, sizeof(time_t));
     if(stat("stocks", &a)) {
-        int stock = open("stocks", O_CREAT | O_WRONLY | O_APPEND, 0700);
+        int stock = open("stocks", O_CREAT | O_WRONLY | O_APPEND, 0600);
         write(stock, &articleCreate, sizeof(time_t));
         for(i = 0; i < nArtigos; i++) {
             new.codigo = i;
@@ -84,7 +85,6 @@ char* articleInfo(int rd, int wr, int id, int* size) {
         preco = getArticlePrice(id);
     else
         read(rd, &preco, sizeof(double));
-    read(rd, &preco, sizeof(double));
     *size = sprintf(buff, "%zu %.2f\n", s.stock, preco);
     close(stock);
     return buff;
@@ -92,7 +92,7 @@ char* articleInfo(int rd, int wr, int id, int* size) {
 
 ssize_t updateStock(int rd, int wr, int id, ssize_t new_stock) {
     int stock = open("stocks", O_RDWR);
-    int vendas = open("vendas", O_WRONLY | O_APPEND | O_CREAT, 0700);
+    int vendas = open("vendas", O_WRONLY | O_APPEND | O_CREAT, 0600);
     Stock s;
     struct stat info;
     fstat(stock, &info);
@@ -120,6 +120,24 @@ ssize_t updateStock(int rd, int wr, int id, ssize_t new_stock) {
 
 int cacheComp(const void* a, const void* b) {
     return ((Cache*) b)->used - ((Cache*) a)->used;
+}
+
+int runAg() {
+    if(!fork()) {
+        int vendas = open("vendas", O_RDONLY);
+        dup2(vendas, 0);
+        close(vendas);
+        time_t timeAg = time(NULL);
+        struct tm tm = *localtime(&timeAg);
+        char buff[BUFFSIZE];
+        sprintf(buff, "%d-%d-%dT%d:%d:%d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+        int agFile = open(buff, O_WRONLY | O_CREAT, 00600);
+        dup2(agFile, 1);
+        close(agFile);
+        execl("./ag","./ag", NULL);
+        return 0;
+    }
+    return 0;
 }
 
 int main() {
@@ -162,7 +180,6 @@ int main() {
                         cache[times] = (Cache) {.codigo = id, 
                             .preco = getArticlePrice(id), 
                             .used = times};
-                        printf("%f\n", getArticlePrice(id));
                         write(prices[1], &(cache[times].preco), sizeof(double));
                         times++;
                     }
@@ -203,7 +220,7 @@ int main() {
         int id, size;
         size = sprintf(buff, "%d\n", getpid());
         write(1, buff, size);
-        mkfifo("/tmp/rd", 0700);
+        mkfifo("/tmp/rd", 0600);
         for(;;) {
             int rd = open("/tmp/rd", O_RDONLY);
             while(readln(rd, buff, BUFFSIZE)) {
