@@ -1,11 +1,16 @@
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "article.h"
 #include "../utils/utils.h"
 #include <errno.h>
+#include <time.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+#include <signal.h>
 
 static int addArticle(char* name, double price) {
     int strings, artigos, id;
@@ -85,16 +90,69 @@ static void strCleaner() {
     pwrite(artigos, all, sizeof(all), sizeof(time_t));
 }
 
+static int runAg() {
+    if(!fork()) {
+        int vendas = open("vendas", O_RDONLY);
+        struct stat a;
+        fstat(vendas, &a);
+        char vendasS[a.st_size];
+        read(vendas, vendasS, a.st_size);
+        close(vendas);
+        int pipes[2];
+        pipe(pipes);
+        fcntl(pipes[1], F_SETPIPE_SZ, a.st_size);
+        fcntl(pipes[1], F_SETFL, O_NONBLOCK);
+        size_t newI = 3000;
+        for(ssize_t i = 0; i < a.st_size;){
+            while(vendasS[newI++] != '\n');
+            int ree[2];
+            pipe(ree);
+            write(ree[1], vendasS + i, newI - i);
+            i = newI;
+            newI += 1000;
+            if(!fork()) {
+                close(ree[1]);
+                close(pipes[0]);
+                dup2(ree[0], 0);
+                close(ree[0]);
+                dup2(pipes[1], 1);
+                close(pipes[1]);
+                execl("./ag","./ag", NULL);
+                return 0;
+            }
+            close(ree[0]);
+            close(ree[1]);
+        }
+        close(pipes[1]);
+        time_t timeAg = time(NULL);
+        struct tm tm = *localtime(&timeAg);
+        char buff[BUFFSIZE];
+        sprintf(buff, "%d-%02d-%02dT%02d:%02d:%02d",
+                tm.tm_year + 1900, 
+                tm.tm_mon + 1, 
+                tm.tm_mday, 
+                tm.tm_hour, 
+                tm.tm_min, 
+                tm.tm_sec);
+        int agFile = open(buff, O_WRONLY | O_CREAT, 00600);
+        dup2(pipes[0], 0);
+        close(pipes[0]);
+        dup2(agFile, 1);
+        close(agFile);
+        execl("./ag","./ag", NULL);
+    }
+    return 0;
+}
+    
 int main() {
-    char buff[200];
-    char cpy[200];
+    char buff[BUFFSIZE];
+    char cpy[BUFFSIZE];
     int read;
     char* str[3];
     int i;
     int strings, articles; 
     strings = articles = 0;
-    mkfifo("/tmp/article.pipe", 00600);
-    while((read = readln(0, buff, 200))) {
+    while((read = readln(0, buff, BUFFSIZE))) {
         int pipe = open("/tmp/article.pipe", O_WRONLY | O_NONBLOCK);
         switch(buff[0]) {
             case 'i':
@@ -118,6 +176,11 @@ int main() {
                 if(!str[1] || !str[2]) break;
                 id = atoi(str[1]);
                 updateName(id, str[2]);
+                strings++;
+                if(articles/strings < 0.8) {
+                    strCleaner();
+                    strings = articles;
+                }
                 break;
             case 'p':
                 strncpy(cpy, buff, BUFFSIZE);
@@ -129,14 +192,13 @@ int main() {
                 price = atof(str[2]);
                 updateArticle(id, price);
                 while(write(pipe, cpy, read) == EAGAIN);
-                strings++;
-                if(articles/strings < 0.8) {
-                    strCleaner();
-                    strings = articles;
-                }
+                break;
+            case 'a':
+                runAg();
                 break;
         }
         close(pipe);
     }
+    unlink("tmp/article.pipe");
     return 0;
 }

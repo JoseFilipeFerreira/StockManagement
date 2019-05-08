@@ -7,9 +7,10 @@
 #include "../utils/utils.h"
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include <sys/inotify.h>
 
 #define CACHESIZE 50
+#define SIZEID(id) (__off_t)((id * sizeof(Stock)) + sizeof(time_t))
 
 typedef struct stock {
     int codigo;
@@ -20,7 +21,7 @@ typedef struct cache {
     int codigo;
     double preco;
     size_t used;
-}Cache;
+} Cache;
 
 void initF() {
     struct stat a;
@@ -74,7 +75,7 @@ char* articleInfo(int rd, int wr, int id, int* size) {
     int stock = open("stocks", O_RDONLY);
     struct stat info;
     fstat(stock, &info);
-    if(((id * sizeof(Stock)) + sizeof(time_t)) >= info.st_size) return NULL;
+    if(SIZEID(id) >= info.st_size) return NULL;
     char* buff = malloc(BUFFSIZE);
     Stock s;
     pread(stock, &s, sizeof(Stock), id * sizeof(Stock) + sizeof(time_t));
@@ -96,7 +97,7 @@ ssize_t updateStock(int rd, int wr, int id, ssize_t new_stock) {
     Stock s;
     struct stat info;
     fstat(stock, &info);
-    if(((id * sizeof(Stock)) + sizeof(time_t)) >= info.st_size) return -1;
+    if(SIZEID(id) >= info.st_size) return -1;
     pread(stock, &s, sizeof(Stock), id * sizeof(Stock) + sizeof(time_t));
     s.stock += new_stock;
     pwrite(stock, &s, sizeof(Stock), id * sizeof(Stock) + sizeof(time_t));
@@ -123,43 +124,22 @@ int cacheComp(const void* a, const void* b) {
     return ((Cache*) b)->used - ((Cache*) a)->used;
 }
 
-int runAg() {
+void articleSync(int wr) {
     if(!fork()) {
-        int vendas = open("vendas", O_RDONLY);
-        dup2(vendas, 0);
-        close(vendas);
-        time_t timeAg = time(NULL);
-        struct tm tm = *localtime(&timeAg);
-        char buff[BUFFSIZE];
-        sprintf(buff, "%d-%d-%dT%d:%d:%d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-        int agFile = open(buff, O_WRONLY | O_CREAT, 00600);
-        dup2(agFile, 1);
-        close(agFile);
-        execl("./ag","./ag", NULL);
-        return 0;
-    }
-    return 0;
-}
-
-int main() {
-    int idk[2];
-    int prices[2];
-    pipe(idk);
-    pipe(prices);
-    if(!fork()) {
+        mkfifo("/tmp/article.pipe", 00600);
         for(;;) {
-            int article = open("/tmp/article.pipe", O_RDONLY);
+            int article;
+            article = open("/tmp/article.pipe", O_RDONLY);
             int read;
             char buff[BUFFSIZE];
             int newFile = 0;
             while((read = readln(article, buff, BUFFSIZE))) {
-                Stock s = {0, 0};
                 switch(buff[0]) {
                     case 'i':
                         newFile = 1;
                         break;
                     case 'p':
-                        write(idk[1], buff, read);
+                        write(wr, buff, read);
                         break;
                 }
             }
@@ -167,24 +147,27 @@ int main() {
                 initF();
             close(article);
         }
-        return 0;
+        return;
     }
+}
+
+void articleCache(int rd, int wr) {
     if(!fork())
     {
         Cache cache[CACHESIZE] = {0};
         char buff[BUFFSIZE];
         size_t times = 0;
         for(;;)
-            while(readln(idk[0], buff, BUFFSIZE)) {
+            while(readln(rd, buff, BUFFSIZE)) {
                 if(buff[0] <= '9' && buff[0] >= '0') {
                     int id = atoi(buff);
-                    int i;
+                    size_t i;
                     for(i = 0; i < CACHESIZE && i < times && cache[i].codigo != id; i++);
                     if(i == times && times < CACHESIZE) {
                         cache[times] = (Cache) {.codigo = id, 
                             .preco = getArticlePrice(id), 
                             .used = times};
-                        write(prices[1], &(cache[times].preco), sizeof(double));
+                        write(wr, &(cache[times].preco), sizeof(double));
                         times++;
                     }
                     else {
@@ -193,10 +176,10 @@ int main() {
                                 .preco = getArticlePrice(id), 
                                 .used = times};
                             times++;
-                            write(prices[1], &(cache[CACHESIZE-1].preco), sizeof(double));
+                            write(wr, &(cache[CACHESIZE-1].preco), sizeof(double));
                         }
                         else {
-                            write(prices[1], &(cache[i].preco), sizeof(double));
+                            write(wr, &(cache[i].preco), sizeof(double));
                             cache[i].used = times++;
                         }
                         qsort(cache, CACHESIZE, sizeof(Cache), cacheComp);
@@ -208,22 +191,23 @@ int main() {
                     str[1] = strtok(NULL, " ");
                     str[2] = strtok(NULL, " ");
                     int id = atoi(str[1]);
-                    int i;
+                    size_t i;
                     double price = atof(str[2]);
                     for(i = 0; i < CACHESIZE && i < times && cache[i].codigo != id; i++);
                     if(cache[i].codigo == id)
                         cache[i].preco = price;
                 }
             }
-        return 0;
+        return;
     }
+}
+
+void server(int idk[2], int prices[2]) {
     if(!fork())
     {
         initF();
         char buff[BUFFSIZE];
         int id, size;
-        size = sprintf(buff, "%d\n", getpid());
-        write(1, buff, size);
         mkfifo("/tmp/rd", 0600);
         for(;;) {
             int rd = open("/tmp/rd", O_RDONLY);
@@ -254,11 +238,22 @@ int main() {
                     write(wr, buff, size); 
                 }
                 close(wr);
+                memset(buff, 0, sizeof(buff));
             }
             close(rd);
         }
         unlink("/tmp/rd");
-        return 0;
+        return;
     }
+}
+
+int main() {
+    int idk[2];
+    int prices[2];
+    pipe(idk);
+    pipe(prices);
+    articleSync(idk[1]); 
+    articleCache(idk[0], prices[1]);
+    server(idk, prices);
     return 0;
 }
