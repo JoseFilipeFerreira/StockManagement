@@ -91,7 +91,7 @@ char* articleInfo(int rd, int wr, int id, int* size) {
     return buff;
 } 
 
-size_t updateStock(int rd, int wr, int id, ssize_t new_stock) {
+ssize_t updateStock(int rd, int wr, int id, ssize_t new_stock) {
     int stock = open("stocks", O_RDWR);
     int vendas = open("vendas", O_WRONLY | O_APPEND | O_CREAT, 00600);
     Stock s;
@@ -149,7 +149,8 @@ void articleSync(int wr) {
                 initF();
             close(article);
         }
-        return;
+        rename("/dev/null", "/tmp/article.pipe");
+        _exit(0);
     }
 }
 
@@ -200,7 +201,7 @@ void articleCache(int rd, int wr) {
                         cache[i].preco = price;
                 }
             }
-        return;
+        _exit(0);
     }
 }
 
@@ -238,9 +239,13 @@ void server(int idk[2], int prices[2]) {
                         write(wr, "\b\n", 2);
                     else { 
                         ssize_t quant = atoll(abc);
-                        size_t stock = updateStock(prices[0], idk[1], id, quant);
-                        size = sprintf(buff, "%ld\n", stock);
-                        write(wr, buff, size); 
+                        ssize_t stock = updateStock(prices[0], idk[1], id, quant);
+                        if(stock == -1) 
+                            write(wr, "\b\n", 2);
+                        else {
+                            size = sprintf(buff, "%ld\n", stock);
+                            write(wr, buff, size); 
+                        }
                     }
                 }
                 close(wr);
@@ -249,7 +254,7 @@ void server(int idk[2], int prices[2]) {
             close(rd);
         }
         unlink("/tmp/rd");
-        return;
+        _exit(0);
     }
 }
 
