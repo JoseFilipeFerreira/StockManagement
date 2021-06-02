@@ -1,4 +1,4 @@
-# SO-SM
+# StockManagement
 
 Client-Server Stock Management (Operating Systems Assignment) 
 
