@@ -22,7 +22,7 @@ cd src && make
 ./cv
 ```
 
-More detailed information [here](https://github.com/JoseFilipeFerreira/SO-SM/blob/README/enunciado-so-2018-19.pdf).
+More detailed information [here](enunciado-so-2018-19.pdf).
 
 ## Authors
 
